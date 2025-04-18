@@ -1,0 +1,6 @@
+path: /Users/satomi/Documents/GitHub/AR-Drawing/hand_detect_dataset
+train: train/images
+val: test/images
+
+nc: 1
+names: ['hand']
