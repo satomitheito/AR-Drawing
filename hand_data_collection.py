@@ -5,7 +5,6 @@ import csv
 import os
 import time
 
-# Create directory for saving data if it doesn't exist
 os.makedirs('model/keypoint_classifier', exist_ok=True)
 csv_path = 'model/keypoint_classifier/keypoint.csv'
 
@@ -33,7 +32,6 @@ GESTURE_LABELS = {
     6: "random",
 }
 
-# Create a labels file if it doesn't exist
 label_file_path = 'model/keypoint_classifier/keypoint_classifier_label.csv'
 if not os.path.exists(label_file_path):
     with open(label_file_path, 'w', newline='') as f:
@@ -43,18 +41,22 @@ if not os.path.exists(label_file_path):
     print(f"Created labels file at {label_file_path}")
 
 # Variables for data collection
-mode = 0  # 0: Detection, 1: Data collection
-gesture_id = -1  # Gesture class number
-capture_ready = False  # Flag to indicate if ready to capture data
+# 0: Detection, 1: Data collection
+mode = 0  
+# Gesture class number
+gesture_id = -1 
+#Flag to indicate if ready to capture data
+capture_ready = False  
 
+# Convert landmark coordinates to relative coordinates and normalize
 def pre_process_landmark(landmark_list):
-    """Convert landmark coordinates to relative coordinates and normalize"""
     temp_landmark_list = landmark_list.copy()
     
     # Convert to relative coordinates
     base_x, base_y = 0, 0
     for i, point in enumerate(temp_landmark_list):
-        if i == 0:  # Use the wrist as the base point
+        # Use the wrist as the base point
+        if i == 0:  
             base_x, base_y = point[0], point[1]
         
         temp_landmark_list[i][0] = temp_landmark_list[i][0] - base_x
@@ -158,20 +160,25 @@ while cap.isOpened():
     
     # Key handling
     key = cv2.waitKey(10)
-    if key & 0xFF == 27:  # ESC
+    # ESC
+    if key & 0xFF == 27:  
         break
-    elif key == ord('c'):  # Toggle collection mode
+    # Toggle collection mode
+    elif key == ord('c'):  
         mode = 0 if mode == 1 else 1
-    elif 48 <= key <= 54:  # 0-6 for the seven gestures
+    # 0-6 for the seven gestures
+    elif 48 <= key <= 54:  
         gesture_id = key - 48
-    elif key == 32 and mode == 1 and capture_ready:  # SPACE key for manual capture
+    # SPACE key for manual capture
+    elif key == 32 and mode == 1 and capture_ready:  
         if processed_landmark_list:
             save_landmark_data(gesture_id, processed_landmark_list)
             # Visual feedback for capture
             cv2.putText(debug_image, "CAPTURED!", (image.shape[1]//2-100, image.shape[0]//2), 
                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3)
             cv2.imshow('Hand Gesture Data Collection', debug_image)
-            cv2.waitKey(500)  # Show the "CAPTURED!" text for 500ms
+            # Show the "CAPTURED!" text
+            cv2.waitKey(500) 
 
 # Release resources
 cap.release()

@@ -7,7 +7,6 @@ import seaborn as sns
 from sklearn.metrics import confusion_matrix, classification_report
 import os
 
-# Define paths
 dataset_path = 'model/keypoint_classifier/keypoint.csv'
 model_save_path = 'model/keypoint_classifier/keypoint_classifier_1d.keras'
 label_file_path = 'model/keypoint_classifier/keypoint_classifier_label.csv'
@@ -18,7 +17,6 @@ if os.path.exists(label_file_path):
         labels = [line.strip() for line in f]
     print(f"Loaded {len(labels)} label names from {label_file_path}")
 else:
-    # Default labels if file not found
     labels = ["size up", "size down", "nothing", "erase", "point", "color", "random"]
     print("Using default labels")
 
@@ -33,8 +31,8 @@ try:
     print(f"Loaded {len(data)} samples from {dataset_path}")
     
     # Split into features and labels
-    X_dataset = data[:, 1:]  # All columns except first (keypoints)
-    y_dataset = data[:, 0].astype(int)  # First column (labels)
+    X_dataset = data[:, 1:]
+    y_dataset = data[:, 0].astype(int) 
     
     # Check class distribution
     unique_classes, counts = np.unique(y_dataset, return_counts=True)
@@ -42,15 +40,8 @@ try:
     for cls, count in zip(unique_classes, counts):
         label_name = labels[cls] if cls < len(labels) else f"Class {cls}"
         print(f"  {label_name} (ID {cls}): {count} samples")
-    
-    # The original dataset is in the shape expected for 2D CNN
-    # For 1D CNN, we just flatten the data differently
-    # Each landmark has x,y coords, so we have 21 landmarks * 2 = 42 features per sample
+
     num_landmarks = 21
-    
-    # For 1D CNN, we keep data in this flattened format
-    # This is different from the 2D CNN reshape which was (samples, 21, 2)
-    # No need to reshape here, as the data is already in flattened format
     
     # Split into training and test sets
     X_train, X_test, y_train, y_test = train_test_split(
@@ -58,7 +49,7 @@ try:
         y_dataset, 
         train_size=0.8, 
         random_state=42,
-        stratify=y_dataset  # Maintain class distribution in train/test split
+        stratify=y_dataset  
     )
     
     print(f"Training samples: {len(X_train)}, Test samples: {len(X_test)}")
@@ -105,7 +96,6 @@ try:
     # Create model
     model = create_1d_cnn_model()
     
-    # Print model summary
     model.summary()
     
     # Define callbacks
@@ -175,94 +165,6 @@ try:
     y_pred = model.predict(X_test)
     y_pred_classes = np.argmax(y_pred, axis=1)
     
-    # Confusion matrix
-    cm = confusion_matrix(y_test, y_pred_classes)
-    plt.figure(figsize=(10, 8))
-    label_names = [labels[i] if i < len(labels) else f"Class {i}" for i in range(NUM_CLASSES)]
-    sns.heatmap(
-        cm, 
-        annot=True, 
-        fmt='d', 
-        cmap='Blues',
-        xticklabels=label_names,
-        yticklabels=label_names
-    )
-    plt.xlabel('Predicted')
-    plt.ylabel('True')
-    plt.title('Confusion Matrix')
-    plt.show()
-    
-    # Classification report
-    report = classification_report(
-        y_test, 
-        y_pred_classes, 
-        target_names=label_names,
-        digits=4
-    )
-    print("Classification Report:")
-    print(report)
-    
-    # Feature importance analysis (optional)
-    # This is a simple way to visualize which features are more important
-    # Get weights from the first layer
-    if hasattr(model.layers[1], 'get_weights') and len(model.layers[1].get_weights()) > 0:
-        # Get weights from the first Conv1D layer
-        first_layer_weights = model.layers[1].get_weights()[0]
-        
-        # Average across filters and the kernel size
-        feature_importance = np.mean(np.abs(first_layer_weights), axis=(1, 2))
-        
-        # Print shape info for debugging
-        print(f"Feature importance shape: {feature_importance.shape}")
-        
-        # Check if we can reshape to the expected landmark format
-        if len(feature_importance) == 42:  # 21 landmarks * 2 coordinates
-            # Reshape to landmarks (21 landmarks, each with x,y)
-            feature_importance_reshaped = feature_importance.reshape(21, 2)
-            
-            plt.figure(figsize=(10, 6))
-            plt.imshow(feature_importance_reshaped, cmap='viridis', aspect='auto')
-            plt.colorbar(label='Average Weight Magnitude')
-            plt.xlabel('Coordinate (0=x, 1=y)')
-            plt.ylabel('Landmark Index')
-            plt.title('Landmark Feature Importance')
-            plt.tight_layout()
-            plt.show()
-            
-            # Plot overall importance of each landmark (combining x,y)
-            landmark_importance = np.mean(feature_importance_reshaped, axis=1)
-            plt.figure(figsize=(12, 6))
-            plt.bar(range(21), landmark_importance)
-            plt.xlabel('Landmark Index')
-            plt.ylabel('Importance Score')
-            plt.title('Relative Importance of Each Hand Landmark')
-            plt.xticks(range(21))
-            plt.tight_layout()
-            plt.show()
-            
-            # Print the most important landmarks
-            top_landmarks = np.argsort(landmark_importance)[::-1][:5]
-            print("\nTop 5 most important landmarks:")
-            for i, idx in enumerate(top_landmarks):
-                print(f"{i+1}. Landmark {idx}: {landmark_importance[idx]:.4f}")
-        else:
-            # If we can't reshape to landmarks, just visualize as a flat array
-            plt.figure(figsize=(12, 6))
-            plt.bar(range(len(feature_importance)), feature_importance)
-            plt.xlabel('Feature Index')
-            plt.ylabel('Importance Score')
-            plt.title('Feature Importance')
-            plt.tight_layout()
-            plt.show()
-            
-            # Print the most important features
-            top_features = np.argsort(feature_importance)[::-1][:5]
-            print("\nTop 5 most important features:")
-            for i, idx in enumerate(top_features):
-                print(f"{i+1}. Feature {idx}: {feature_importance[idx]:.4f}")
-
-    print(f"\nModel successfully trained and saved to {model_save_path}")
-    print("You can now use this model with the gesture_recognition_1d.py script")
 
 except Exception as e:
     print(f"Error: {e}")

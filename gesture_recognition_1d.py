@@ -15,13 +15,11 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-# Load gesture labels
 label_file_path = 'model/keypoint_classifier/keypoint_classifier_label.csv'
 if os.path.exists(label_file_path):
     with open(label_file_path, 'r') as f:
         labels = [line.strip() for line in f]
 else:
-    # Default labels if file not found
     labels = ["size up", "size down", "nothing", "erase", "point", "color", "random"]
 
 NUM_CLASSES = len(labels)
@@ -29,20 +27,21 @@ NUM_CLASSES = len(labels)
 # Initialize webcam
 cap = cv2.VideoCapture(0)
 
+# Convert landmark coordinates to relative coordinates and normalize
 def pre_process_landmark(landmark_list):
-    """Convert landmark coordinates to relative coordinates and normalize"""
     temp_landmark_list = landmark_list.copy()
     
     # Convert to relative coordinates
     base_x, base_y = 0, 0
     for i, point in enumerate(temp_landmark_list):
-        if i == 0:  # Use the wrist as the base point
+        # Use the wrist as the base point
+        if i == 0: 
             base_x, base_y = point[0], point[1]
         
         temp_landmark_list[i][0] = temp_landmark_list[i][0] - base_x
         temp_landmark_list[i][1] = temp_landmark_list[i][1] - base_y
     
-    # Flatten the list for 1D CNN (x1, y1, x2, y2, ..., x21, y21)
+    # Flatten the list for 1D CNN 
     temp_landmark_list = list(np.array(temp_landmark_list).flatten())
     
     # Normalize
@@ -52,11 +51,11 @@ def pre_process_landmark(landmark_list):
     
     return temp_landmark_list
 
+# Create a 1D CNN model for hand gesture recognition
 def create_1d_cnn_model():
-    """Create a 1D CNN model for hand gesture recognition"""
-    # Input shape will be (42,) - flattened x,y coordinates of 21 landmarks
+    # Input shape will be (42,)
     model = tf.keras.Sequential([
-        # Reshape input to (42, 1) for Conv1D
+        # Reshape input to (42, 1)
         tf.keras.layers.Reshape((42, 1), input_shape=(42,)),
         
         # First Conv1D block
@@ -92,25 +91,21 @@ def create_1d_cnn_model():
     
     return model
 
-# Create or load model
 model_path = 'model/keypoint_classifier/keypoint_classifier_1d.keras'
 if os.path.exists(model_path):
-    # Load existing model
     model = tf.keras.models.load_model(model_path)
     print(f"Loaded existing model from {model_path}")
 else:
-    # Create new model
     model = create_1d_cnn_model()
     print("Created new 1D CNN model")
     
-    # Since this is a new model, we need to save it for future use
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
     model.save(model_path)
     print(f"Saved new model to {model_path}")
 
+#Predict gesture using the 1D CNN model
 def predict_gesture(landmark_list):
-    """Predict gesture using the 1D CNN model"""
-    # For 1D CNN, input is a flattened array of 42 values (21 landmarks x 2 coordinates)
+    # Input is a flattened array of 42 values (21 landmarks x 2 coordinates)
     input_data = np.array([landmark_list], dtype=np.float32)
     
     # Make prediction
@@ -122,8 +117,8 @@ def predict_gesture(landmark_list):
     
     return predicted_class_idx, confidence
 
+# Update model with a single training sample
 def train_model_with_sample(landmark_list, true_class_idx):
-    """Update model with a single training sample"""
     # Prepare input data
     X = np.array([landmark_list], dtype=np.float32)
     y = np.array([true_class_idx], dtype=np.int32)
@@ -135,7 +130,7 @@ def train_model_with_sample(landmark_list, true_class_idx):
     model.save(model_path)
     print(f"Model updated with sample for class: {labels[true_class_idx]}")
 
-# Main loop
+
 training_mode = False
 current_class = 0
 
@@ -219,12 +214,14 @@ while cap.isOpened():
     # Key handling
     key = cv2.waitKey(5) & 0xFF
     
-    if key == 27:  # ESC
+    # ESC
+    if key == 27: 
         break
     elif key == ord('t'):  # Toggle training mode
         training_mode = not training_mode
         print(f"{'Training' if training_mode else 'Recognition'} mode activated")
-    elif 48 <= key <= 54:  # 0-6 keys for class selection in training mode
+    # 0-6 keys for class selection in training mode
+    elif 48 <= key <= 54: 
         if training_mode:
             current_class = key - 48
             if current_class < len(labels):
@@ -232,7 +229,8 @@ while cap.isOpened():
             else:
                 print(f"Selected class index {current_class} is out of range")
                 current_class = 0
-    elif key == 32:  # SPACE to capture sample in training mode
+    # SPACE to capture sample in training mode
+    elif key == 32:  
         if training_mode and results.multi_hand_landmarks:
             # Train model with current sample
             train_model_with_sample(processed_landmark_list, current_class)

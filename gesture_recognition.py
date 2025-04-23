@@ -4,7 +4,6 @@ import numpy as np
 import tensorflow as tf
 import os
 
-# Load the TFLite model
 model_path = 'model/keypoint_classifier/keypoint_classifier.tflite'
 interpreter = tf.lite.Interpreter(model_path=model_path)
 interpreter.allocate_tensors()
@@ -23,26 +22,25 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-# Load gesture labels
 label_file_path = 'model/keypoint_classifier/keypoint_classifier_label.csv'
 if os.path.exists(label_file_path):
     with open(label_file_path, 'r') as f:
         labels = [line.strip() for line in f]
 else:
-    # Default labels if file not found
     labels = ["size up", "size down", "nothing", "erase", "point", "color", "random"]
 
 # Initialize webcam
 cap = cv2.VideoCapture(0)
 
+# Convert landmark coordinates to relative coordinates and normalize
 def pre_process_landmark(landmark_list):
-    """Convert landmark coordinates to relative coordinates and normalize"""
     temp_landmark_list = landmark_list.copy()
     
     # Convert to relative coordinates
     base_x, base_y = 0, 0
     for i, point in enumerate(temp_landmark_list):
-        if i == 0:  # Use the wrist as the base point
+        # Use the wrist as the base point
+        if i == 0: 
             base_x, base_y = point[0], point[1]
         
         temp_landmark_list[i][0] = temp_landmark_list[i][0] - base_x
@@ -58,8 +56,8 @@ def pre_process_landmark(landmark_list):
     
     return temp_landmark_list
 
+# Draw hand landmarks with connections
 def draw_hand_landmarks(image, landmarks):
-    """Draw hand landmarks with connections"""
     # Draw dots at each landmark
     for point in landmarks:
         x, y = int(point[0]), int(point[1])
@@ -89,8 +87,8 @@ def draw_hand_landmarks(image, landmarks):
             end_point = (int(landmarks[end_idx][0]), int(landmarks[end_idx][1]))
             cv2.line(image, start_point, end_point, (0, 255, 0), 2)
 
+# Predict gesture using the TFLite model
 def predict_gesture(landmark_list):
-    """Predict gesture using the TFLite model"""
     # Reshape input data to match model's expected shape
     input_data = np.array([landmark_list], dtype=np.float32)
     input_data = input_data.reshape(1, 21, 2)
@@ -111,9 +109,9 @@ def predict_gesture(landmark_list):
     return predicted_class_idx, confidence
 
 # Define index finger tip index
-INDEX_FINGER_TIP = 8  # MediaPipe hand landmark index for index finger tip
+INDEX_FINGER_TIP = 8 
 
-# Main loop
+
 while cap.isOpened():
     success, image = cap.read()
     if not success:
@@ -168,7 +166,7 @@ while cap.isOpened():
                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
             
             # If "point" gesture is detected, highlight the index finger tip
-            if predicted_label == "point" and confidence > 0.7:  # You can adjust this threshold
+            if predicted_label == "point" and confidence > 0.7: 
                 # Get index finger tip coordinates
                 index_finger_tip = landmark_list[INDEX_FINGER_TIP]
                 x, y = index_finger_tip

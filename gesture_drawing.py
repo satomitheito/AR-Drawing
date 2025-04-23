@@ -5,13 +5,10 @@ import tensorflow as tf
 import os
 import time
 
-# Load the TFLite model
-model_path = 'model/keypoint_classifier/keypoint_classifier.tflite'
-interpreter = tf.lite.Interpreter(model_path=model_path)
-interpreter.allocate_tensors()
-
-input_details = interpreter.get_input_details()
-output_details = interpreter.get_output_details()
+# Load the CNN1D model 
+model_path = 'model/keypoint_classifier/keypoint_classifier_1d.keras'
+model = tf.keras.models.load_model(model_path)
+print(f"Loaded 1D CNN model from {model_path}")
 
 # Initialize MediaPipe Hands
 mp_hands = mp.solutions.hands
@@ -24,13 +21,12 @@ hands = mp_hands.Hands(
     min_tracking_confidence=0.5
 )
 
-# Load gesture labels
+
 label_file_path = 'model/keypoint_classifier/keypoint_classifier_label.csv'
 if os.path.exists(label_file_path):
     with open(label_file_path, 'r') as f:
         labels = [line.strip() for line in f]
 else:
-    # Default labels if file not found
     labels = ["size up", "size down", "nothing", "erase", "point", "color", "random"]
 
 # Initialize webcam
@@ -43,41 +39,58 @@ if not ret:
     exit()
 
 # Create a white canvas instead of transparent
-canvas = np.ones_like(frame) * 255  # White background
-draw_overlay = np.zeros_like(frame)  # Transparent overlay for combined view
+# White background
+canvas = np.ones_like(frame) * 255  
+# Transparent overlay for combined view
+draw_overlay = np.zeros_like(frame) 
 
 # Create a persistent canvas that never gets cleared unless explicitly requested
-persistent_canvas = np.zeros_like(frame)  # This will store all drawings permanently
+persistent_canvas = np.zeros_like(frame) 
+# Create a mask to track where drawings have been made
+drawing_mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)
 
 # Drawing settings
-draw_color = (0, 0, 255)  # Red - more visible
-brush_thickness = 20  # Default thickness
-min_brush_thickness = 5  # Minimum brush size
-max_brush_thickness = 50  # Maximum brush size
-brush_size_increment = 5  # How much to increase/decrease by
-eraser_radius = 30  # Fixed radius for the eraser tool
+# Red 
+draw_color = (0, 0, 255)  
+# Default thickness 
+brush_thickness = 20 
+# Minimum brush size
+min_brush_thickness = 5 
+# Maximum brush size
+max_brush_thickness = 50 
+# How much to increase/decrease by
+brush_size_increment = 5 
+# Fixed radius for the eraser tool
+eraser_radius = 30 
 is_drawing = False
 last_point = None
-draw_points = []  # Store all points for debugging
-smoothing_points = []  # For line smoothing
-smoothing_window = 2  # Reduced for more immediate response
+# Store all points for debugging
+draw_points = [] 
+# For line smoothing
+smoothing_points = [] 
+# Reduced for more immediate response
+smoothing_window = 2  
 
-# Fingertip indices for all fingers (for eraser functionality)
-FINGERTIP_INDICES = [4, 8, 12, 16, 20]  # Thumb, index, middle, ring, pinky tips
+# Fingertip indices for all fingers 
+# Thumb, index, middle, ring, pinky tips
+FINGERTIP_INDICES = [4, 8, 12, 16, 20] 
 
 # Brush size control
-last_size_change_time = 0  # Track when we last changed the brush size
-size_change_cooldown = 1.0  # Cooldown in seconds between size changes
+# Track when we last changed the brush size
+last_size_change_time = 0 
+# Cooldown in seconds between size changes
+size_change_cooldown = 1.0  
 
 # Flag to control whether to show the persistent drawing
 show_persistent_drawing = True
 
-# Canvas dimensions - set explicitly to ensure consistent coordinates
-canvas_width = 640  # Adjust based on your camera resolution
-canvas_height = 480  # Adjust based on your camera resolution
+# Canvas dimensions (Adjust based on camera resolution)
+canvas_width = 640  
+canvas_height = 480  
 
 # Color picker settings
-color_picker_active = False  # Flag to track if color picker is active
+# Flag to track if color picker is active
+color_picker_active = False 
 color_options = [
     (0, 0, 255),    # Red
     (0, 127, 255),  # Orange 
@@ -90,14 +103,14 @@ color_options = [
     (255, 255, 255) # White
 ]
 color_names = ["Red", "Orange", "Yellow", "Green", "Blue", "Purple", "Pink", "Black", "White"]
-selected_color_idx = 0  # Default to red
+# Default to red
+selected_color_idx = 0  
 
 # Erase mode settings
-erase_mode_active = False  # Flag to track if erase mode is active
+erase_mode_active = False  
 
-# Function to convert raw MediaPipe landmark coordinates to screen coordinates
+# Convert raw MediaPipe landmark coordinates to screen coordinates
 def convert_landmark_to_screen_coordinates(landmark, image_shape):
-    """Convert landmark coordinates from MediaPipe format to screen coordinates"""
     # MediaPipe provides normalized coordinates (0.0-1.0)
     # Convert to pixel coordinates based on image dimensions
     h, w = image_shape[:2]
@@ -110,42 +123,42 @@ def convert_landmark_to_screen_coordinates(landmark, image_shape):
 
 # Coordinate normalization function for displaying coordinates
 def normalize_coordinates(x, y):
-    """Normalize coordinates so that top-left is (0,0) and values increase as you go right and down"""
     # Ensure coordinates are positive and within canvas bounds
     x = max(0, min(canvas_width-1, x))
     y = max(0, min(canvas_height-1, y))
     return int(x), int(y)
 
-# Initialize drawing paths - store separate strokes
+# Initialize drawing paths 
 drawing_paths = []
 current_path = []
 
 # Drawing mode
-drawing_mode = "overlay"  # Can be "overlay" or "whiteboard"
+drawing_mode = "overlay" 
 
 # Define index finger tip index
-INDEX_FINGER_TIP = 8  # MediaPipe hand landmark index for index finger tip
+INDEX_FINGER_TIP = 8  
 
 # Define confidence threshold for point gesture
-POINT_CONFIDENCE_THRESHOLD = 0.6  # Lowered from 0.7 to make detection more sensitive
+POINT_CONFIDENCE_THRESHOLD = 0.6  
 
-# Set debug mode (for troubleshooting)
+
 DEBUG_MODE = True
 
+# Convert landmark coordinates to relative coordinates and normalize
 def pre_process_landmark(landmark_list):
-    """Convert landmark coordinates to relative coordinates and normalize"""
     temp_landmark_list = landmark_list.copy()
     
     # Convert to relative coordinates
     base_x, base_y = 0, 0
     for i, point in enumerate(temp_landmark_list):
-        if i == 0:  # Use the wrist as the base point
+        # Use the wrist as the base point
+        if i == 0: 
             base_x, base_y = point[0], point[1]
         
         temp_landmark_list[i][0] = temp_landmark_list[i][0] - base_x
         temp_landmark_list[i][1] = temp_landmark_list[i][1] - base_y
     
-    # Flatten the list
+    # Flatten the list for 1D CNN
     temp_landmark_list = list(np.array(temp_landmark_list).flatten())
     
     # Normalize
@@ -155,24 +168,17 @@ def pre_process_landmark(landmark_list):
     
     return temp_landmark_list
 
+# Predict gesture using the 1D CNN model
 def predict_gesture(landmark_list):
-    """Predict gesture using the TFLite model"""
-    # Reshape input data to match model's expected shape
+    # Prepare input data 
     input_data = np.array([landmark_list], dtype=np.float32)
-    input_data = input_data.reshape(1, 21, 2)
     
-    # Set input tensor
-    interpreter.set_tensor(input_details[0]['index'], input_data)
-    
-    # Run inference
-    interpreter.invoke()
-    
-    # Get output tensor
-    output_data = interpreter.get_tensor(output_details[0]['index'])
+    # Make prediction with the model
+    predictions = model.predict(input_data, verbose=0)
     
     # Get the index of the highest probability
-    predicted_class_idx = np.argmax(output_data[0])
-    confidence = output_data[0][predicted_class_idx]
+    predicted_class_idx = np.argmax(predictions[0])
+    confidence = predictions[0][predicted_class_idx]
     
     return predicted_class_idx, confidence
 
@@ -190,7 +196,6 @@ def get_smoothed_point(new_point):
 
 # Function to draw the color wheel/palette
 def draw_color_picker(image):
-    """Draw a color picker interface on the image"""
     h, w = image.shape[:2]
     
     # Draw semi-transparent background
@@ -243,7 +248,6 @@ def draw_color_picker(image):
 
 # Function to check if a point is within a specific color in the picker
 def is_point_in_color(point, color_idx, start_x, start_y, color_size, margin, cols):
-    """Check if a point is within a specific color square"""
     row = color_idx // cols
     col = color_idx % cols
     
@@ -255,14 +259,13 @@ def is_point_in_color(point, color_idx, start_x, start_y, color_size, margin, co
 
 # Function to check if a point is within the close button
 def is_point_in_close_button(point, close_x, close_y):
-    """Check if a point is within the close button"""
     return (close_x - 15 <= point[0] <= close_x + 15 and 
             close_y - 15 <= point[1] <= close_y + 15)
 
 # Function to display current brush size as a preview circle
 def draw_brush_size_preview(image, thickness):
-    """Draw a preview circle showing the current brush size and color"""
-    preview_pos = (image.shape[1] - 50, 50)  # Position in top-right
+    # Position in top-right
+    preview_pos = (image.shape[1] - 50, 50) 
     # Draw outer white circle
     cv2.circle(image, preview_pos, thickness//2 + 2, (255, 255, 255), 2)
     # Draw inner colored circle representing the brush
@@ -281,7 +284,7 @@ def update_brush_size(gesture, current_time):
     
     # Check if cooldown period has passed
     if current_time - last_size_change_time < size_change_cooldown:
-        return False  # Still in cooldown
+        return False 
     
     changed = False
     if gesture == "size up" and brush_thickness < max_brush_thickness:
@@ -294,21 +297,22 @@ def update_brush_size(gesture, current_time):
         print(f"Brush size decreased to {brush_thickness}")
     
     if changed:
-        last_size_change_time = current_time  # Reset cooldown timer
+        # Reset cooldown timer
+        last_size_change_time = current_time  
         return True
     
     return False
 
 # Function to erase drawings around a point - simplified and more direct
 def erase_around_point(point, radius, canvas):
-    """Erase drawings within radius of the given point by directly drawing black circles"""
     # Simply draw a black (filled) circle directly on the canvas to erase
     cv2.circle(canvas, point, radius, (0, 0, 0), -1)
-    return True  # Always return true for visual feedback
+    # Also update the drawing mask to indicate this area has been modified
+    cv2.circle(drawing_mask, point, radius, 0, -1)
+    return True 
 
 # Function to draw the erase mode interface
 def draw_erase_mode_interface(image):
-    """Draw the erase mode interface with exit button"""
     h, w = image.shape[:2]
     
     # Draw indicator at top of screen
@@ -334,11 +338,20 @@ def draw_erase_mode_interface(image):
 
 # Function to check if a point is within the exit button
 def is_point_in_exit_button(point, exit_x, exit_y):
-    """Check if a point is within the exit button"""
     return (exit_x - 50 <= point[0] <= exit_x + 50 and 
             exit_y - 15 <= point[1] <= exit_y + 15)
 
-# Main loop
+# Define a helper function to create a brighter version of a color for outlines
+def get_outline_color(color):
+    b, g, r = color 
+    # Make each channel brighter by 50 or max out at 255
+    # This ensures the outline is visible but matches the color theme
+    bright_b = min(b + 50, 255)
+    bright_g = min(g + 50, 255)
+    bright_r = min(r + 50, 255)
+    return (bright_b, bright_g, bright_r)
+
+
 while cap.isOpened():
     success, image = cap.read()
     if not success:
@@ -384,11 +397,8 @@ while cap.isOpened():
             # Process landmarks for classification
             processed_landmark_list = pre_process_landmark(landmark_list)
             
-            # Reshape landmarks for our model
-            landmark_array = np.array(processed_landmark_list).reshape(21, 2)
-            
-            # Predict gesture
-            predicted_class_idx, confidence = predict_gesture(landmark_array)
+            # Predict gesture - no need to reshape for 1D model
+            predicted_class_idx, confidence = predict_gesture(processed_landmark_list)
             if predicted_class_idx < len(labels):
                 predicted_label = labels[predicted_class_idx]
                 
@@ -434,14 +444,14 @@ while cap.isOpened():
                 current_point = (tip_x, tip_y)
                 
                 # Draw cursor at fingertip for immediate feedback
-                cv2.circle(image, current_point, 15, (0, 255, 255), -1)  # Yellow dot
-                cv2.circle(image, current_point, 15, (0, 0, 0), 2)       # Black outline
+                cv2.circle(image, current_point, 15, (0, 255, 255), -1)  
+                cv2.circle(image, current_point, 15, (0, 0, 0), 2)    
                 
                 # Add a small crosshair for precise selection
                 cv2.line(image, (tip_x-10, tip_y), (tip_x+10, tip_y), (0, 0, 0), 2)
                 cv2.line(image, (tip_x, tip_y-10), (tip_x, tip_y+10), (0, 0, 0), 2)
                 
-                # Important: Disable pointing_this_frame in color picker mode to prevent drawing
+                # Disable pointing_this_frame in color picker mode to prevent drawing
                 pointing_this_frame = False
             
             # If "point" gesture is detected, highlight the index finger tip and draw
@@ -452,7 +462,7 @@ while cap.isOpened():
                 # Convert to screen coordinates
                 x, y = convert_landmark_to_screen_coordinates(index_finger_landmark, image.shape)
                 
-                # Set current point for drawing - this is the exact fingertip position
+                # Set current point for drawing 
                 current_point = (x, y)
                 pointing_this_frame = True
                 
@@ -483,8 +493,8 @@ while cap.isOpened():
                     current_point = (tip_x, tip_y)
                     
                     # Draw eraser cursor at fingertip position
-                    cv2.circle(image, current_point, eraser_radius, (0, 255, 255), 3)  # Yellow outline
-                    cv2.circle(image, current_point, eraser_radius, (0, 0, 0), 1)      # Black inner outline
+                    cv2.circle(image, current_point, eraser_radius, (0, 255, 255), 3) 
+                    cv2.circle(image, current_point, eraser_radius, (0, 0, 0), 1)   
                     
                     # Erase at the finger position from all canvases
                     erase_around_point(current_point, eraser_radius, persistent_canvas)
@@ -508,36 +518,40 @@ while cap.isOpened():
             is_drawing = True
             last_point = current_point
             # Always start with the exact finger position (no smoothing for first point)
-            smoothing_points = [current_point]  # Reset smoothing
-            current_path = [current_point]  # Start a new path with first point
+            smoothing_points = [current_point] 
+            current_path = [current_point]
             
             # Draw a dot at the start point on all canvases, including the persistent one
             cv2.circle(image, current_point, brush_thickness//2, draw_color, -1)
             cv2.circle(canvas, current_point, brush_thickness//2, draw_color, -1)
             cv2.circle(draw_overlay, current_point, brush_thickness//2, draw_color, -1)
             cv2.circle(persistent_canvas, current_point, brush_thickness//2, draw_color, -1)
+            # Update the drawing mask
+            cv2.circle(drawing_mask, current_point, brush_thickness//2, 255, -1)
             
             # Debug message
             print(f"Starting to draw at {current_point}")
-        elif last_point is not None:  # Always draw, even if points seem the same
-            # Get smoothed point for more natural lines
+        elif last_point is not None:  
             smoothed_point = get_smoothed_point(current_point)
             
             if (abs(last_point[0] - smoothed_point[0]) > 1 or 
-                abs(last_point[1] - smoothed_point[1]) > 1):  # Only if moved at least 1 pixel
+                abs(last_point[1] - smoothed_point[1]) > 1): 
                 
                 # Continue the stroke by drawing a line from last point to current
                 # Draw directly on the image for immediate feedback
-                cv2.line(image, last_point, smoothed_point, (255, 255, 255), brush_thickness + 6, cv2.LINE_AA)  # White outline
+                outline_color = get_outline_color(draw_color)
+                cv2.line(image, last_point, smoothed_point, outline_color, brush_thickness + 6, cv2.LINE_AA)  # Colored outline
                 cv2.line(image, last_point, smoothed_point, draw_color, brush_thickness, cv2.LINE_AA)  # Color line
                 
                 # Add to the persistent canvases
                 cv2.line(canvas, last_point, smoothed_point, draw_color, brush_thickness, cv2.LINE_AA)
                 cv2.line(draw_overlay, last_point, smoothed_point, draw_color, brush_thickness, cv2.LINE_AA)
                 
-                # Add to the persistent canvas that never gets cleared - with white outline
-                cv2.line(persistent_canvas, last_point, smoothed_point, (255, 255, 255), brush_thickness + 6, cv2.LINE_AA)  # White outline
+                # Add to the persistent canvas that never gets cleared - with colored outline
+                cv2.line(persistent_canvas, last_point, smoothed_point, outline_color, brush_thickness + 6, cv2.LINE_AA)  # Colored outline
                 cv2.line(persistent_canvas, last_point, smoothed_point, draw_color, brush_thickness, cv2.LINE_AA)  # Color line
+                # Update the drawing mask
+                cv2.line(drawing_mask, last_point, smoothed_point, 255, brush_thickness + 6, cv2.LINE_AA)
                 
                 # Store the point in both lists
                 draw_points.append(smoothed_point)
@@ -579,9 +593,10 @@ while cap.isOpened():
         for path in drawing_paths:
             if len(path) > 1:
                 for i in range(1, len(path)):
-                    # Draw thick white outline first
+                    # Draw colored outline that matches the stroke color (but brighter)
+                    outline_color = get_outline_color(draw_color)
                     cv2.line(visible_overlay, path[i-1], path[i], 
-                            (255, 255, 255), brush_thickness + 6, cv2.LINE_AA)
+                            outline_color, brush_thickness + 6, cv2.LINE_AA)
                     # Then draw colored line on top
                     cv2.line(visible_overlay, path[i-1], path[i], 
                             draw_color, brush_thickness, cv2.LINE_AA)
@@ -590,11 +605,12 @@ while cap.isOpened():
         if current_path and len(current_path) > 1 and not color_picker_active:
             for i in range(1, len(current_path)):
                 # Draw on both the visible overlay AND directly on the image
-                # Draw thick white outline first
+                # Draw colored outline
+                outline_color = get_outline_color(draw_color)
                 cv2.line(visible_overlay, current_path[i-1], current_path[i], 
-                        (255, 255, 255), brush_thickness + 6, cv2.LINE_AA)
+                        outline_color, brush_thickness + 6, cv2.LINE_AA)
                 cv2.line(image, current_path[i-1], current_path[i], 
-                        (255, 255, 255), brush_thickness + 6, cv2.LINE_AA)
+                        outline_color, brush_thickness + 6, cv2.LINE_AA)
                 
                 # Then draw colored line on top
                 cv2.line(visible_overlay, current_path[i-1], current_path[i], 
@@ -608,9 +624,9 @@ while cap.isOpened():
         # Use the ACTUAL persistent canvas for overlay to show erasing in real-time
         if show_persistent_drawing:
             # Apply the persistent canvas directly
-            # First create a mask of non-black pixels
-            mask = cv2.cvtColor(persistent_canvas, cv2.COLOR_BGR2GRAY) > 0
-            # Only apply pixels that aren't black (the drawing)
+            # Use the drawing_mask instead of creating a mask from grayscale
+            mask = drawing_mask > 0
+            # Only apply pixels that are marked in the drawing mask
             combined_image[mask] = persistent_canvas[mask]
     elif drawing_mode == "whiteboard" and not erase_mode_active:
         # Redraw all paths on a fresh canvas each frame
@@ -618,8 +634,8 @@ while cap.isOpened():
         
         # Always add the persistent drawings
         if show_persistent_drawing:
-            # Copy the persistent canvas to this frame's canvas
-            mask = cv2.cvtColor(persistent_canvas, cv2.COLOR_BGR2GRAY) > 0
+            # Use the drawing_mask instead of creating a mask from grayscale
+            mask = drawing_mask > 0
             canvas_draw[mask] = persistent_canvas[mask]
         
         # Draw current path if active
@@ -744,17 +760,19 @@ while cap.isOpened():
             base_image = image.copy()
             
             # Apply persistent canvas with erased regions properly showing up
-            mask = cv2.cvtColor(persistent_canvas, cv2.COLOR_BGR2GRAY) > 0
+            # Use the drawing_mask instead of creating a mask from grayscale
+            mask = drawing_mask > 0
             base_image[mask] = persistent_canvas[mask]
             
             # Use this as our combined image
             combined_image = base_image.copy()
-        else:  # whiteboard mode
+        else: 
             # Create a fresh white canvas
             whiteboard = np.ones_like(frame) * 255
             
             # Apply persistent canvas with erased regions
-            mask = cv2.cvtColor(persistent_canvas, cv2.COLOR_BGR2GRAY) > 0
+            # Use the drawing_mask instead of creating a mask from grayscale
+            mask = drawing_mask > 0
             whiteboard[mask] = persistent_canvas[mask]
             
             # Use this for our combined image
@@ -775,7 +793,6 @@ while cap.isOpened():
                 erase_mode_active = False
                 print("Exited erase mode")
                 
-                # IMPORTANT: Make sure drawing paths are updated based on erased content
                 # Clear existing drawing paths that might have been erased
                 drawing_paths = []
                 
@@ -791,7 +808,7 @@ while cap.isOpened():
     
     # Handle keyboard input
     key = cv2.waitKey(5) & 0xFF
-    if key == 27:  # ESC key
+    if key == 27:  
         break
     elif key == ord('c'):  # Clear only the temporary drawing
         canvas = np.ones_like(frame) * 255  # White background
@@ -804,6 +821,7 @@ while cap.isOpened():
         canvas = np.ones_like(frame) * 255  # White background
         draw_overlay = np.zeros_like(frame)  # Clear overlay
         persistent_canvas = np.zeros_like(frame)  # Clear persistent canvas
+        drawing_mask = np.zeros((frame.shape[0], frame.shape[1]), dtype=np.uint8)  # Clear drawing mask
         draw_points = []  # Clear stored points
         drawing_paths = []  # Clear all paths
         current_path = []  # Clear current path
