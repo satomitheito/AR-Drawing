@@ -320,15 +320,39 @@ def draw_erase_mode_interface(image):
     cv2.putText(image, "ERASE MODE ACTIVE", (w//2 - 120, 30), 
                 cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 2, cv2.LINE_AA)
     
-    # Draw exit button
-    exit_button_x = w - 100
+    # Draw a larger and more visible exit button
+    exit_button_x = w - 120
     exit_button_y = 25
-    cv2.rectangle(image, (exit_button_x - 50, exit_button_y - 15), 
-                 (exit_button_x + 50, exit_button_y + 15), (200, 200, 200), -1)
-    cv2.rectangle(image, (exit_button_x - 50, exit_button_y - 15), 
-                 (exit_button_x + 50, exit_button_y + 15), (0, 0, 0), 2)
-    cv2.putText(image, "EXIT ERASE", (exit_button_x - 45, exit_button_y + 5), 
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1, cv2.LINE_AA)
+    # Increase button size significantly
+    button_width = 110  # Slightly wider to accommodate text
+    button_height = 35
+    
+    # Draw button with red background for better visibility
+    cv2.rectangle(image, 
+                 (exit_button_x - button_width//2, exit_button_y - button_height//2), 
+                 (exit_button_x + button_width//2, exit_button_y + button_height//2), 
+                 (0, 0, 200), -1)  # Red background
+    
+    # Add a white border
+    cv2.rectangle(image, 
+                 (exit_button_x - button_width//2, exit_button_y - button_height//2), 
+                 (exit_button_x + button_width//2, exit_button_y + button_height//2), 
+                 (255, 255, 255), 2)  # White border
+    
+    # Get text size to properly center it
+    text = "EXIT ERASE"
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 0.65  # Slightly smaller font
+    thickness = 2
+    text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+    
+    # Calculate text position to center it in the button
+    text_x = exit_button_x - text_size[0] // 2
+    text_y = exit_button_y + text_size[1] // 2
+    
+    # Add text with proper centering
+    cv2.putText(image, text, (text_x, text_y), 
+                font, font_scale, (255, 255, 255), thickness, cv2.LINE_AA)  # White text
     
     # Draw eraser size indicator
     cv2.putText(image, f"Eraser Size: {eraser_radius}", (20, 30), 
@@ -336,10 +360,12 @@ def draw_erase_mode_interface(image):
     
     return exit_button_x, exit_button_y
 
-# Function to check if a point is within the exit button
+# Function to check if a point is within the exit button - update to match new button size
 def is_point_in_exit_button(point, exit_x, exit_y):
-    return (exit_x - 50 <= point[0] <= exit_x + 50 and 
-            exit_y - 15 <= point[1] <= exit_y + 15)
+    button_width = 110  # Match the width from above
+    button_height = 35
+    return (exit_x - button_width//2 <= point[0] <= exit_x + button_width//2 and 
+            exit_y - button_height//2 <= point[1] <= exit_y + button_height//2)
 
 # Define a helper function to create a brighter version of a color for outlines
 def get_outline_color(color):
@@ -582,7 +608,7 @@ while cap.isOpened():
         # Reset drawing state
         is_drawing = False
         last_point = None
-        smoothing_points = []  # Reset smoothing
+        smoothing_points = []  
     
     # Update visualization to always include persistent drawings
     if drawing_mode == "overlay" and not erase_mode_active:
