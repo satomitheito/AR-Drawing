@@ -1,0 +1,7 @@
+mediapipe
+opencv-python
+tensorflow>=2.12.0
+tensorflow-metal
+scikit-learn
+matplotlib
+protobuf
